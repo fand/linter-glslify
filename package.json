@@ -1,0 +1,62 @@
+{
+  "name": "linter-glslify",
+  "main": "./lib/linter-glslify",
+  "version": "0.0.0",
+  "description": "Linter for GLSL shaders, powered with glslify",
+  "repository": "https://github.com/fand/linter-glslify",
+  "license": "MIT",
+  "engines": {
+    "atom": ">=1.0.0 <2.0.0"
+  },
+  "providedServices": {
+    "linter": {
+      "versions": {
+        "2.0.0": "provideLinter"
+      }
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "apm test"
+  },
+  "dependencies": {
+    "atom-linter": "10.0.0",
+    "atom-message-panel": "1.3.0",
+    "atom-package-deps": "5.1.0",
+    "which": "1.3.1"
+  },
+  "devDependencies": {
+    "eslint": "5.16.0",
+    "eslint-config-airbnb-base": "13.1.0",
+    "eslint-plugin-import": "2.17.2",
+    "jasmine-fix": "1.3.1"
+  },
+  "eslintConfig": {
+    "extends": "airbnb-base",
+    "rules": {
+      "global-require": "off",
+      "import/no-unresolved": [
+        "error",
+        {
+          "ignore": [
+            "atom"
+          ]
+        }
+      ]
+    },
+    "globals": {
+      "atom": true
+    },
+    "env": {
+      "node": true
+    }
+  },
+  "renovate": {
+    "extends": [
+      "config:base"
+    ]
+  },
+  "package-deps": [
+    "linter:2.0.0"
+  ]
+}
