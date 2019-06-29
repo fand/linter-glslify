@@ -3,10 +3,11 @@ import * as fs from "fs";
 import * as path from "path";
 import which from "which";
 
-import { TextEditor, CompositeDisposable } from "atom";
-const { MessagePanelView } = require("atom-message-panel");
+import * as Atom from "atom";
+import { MessagePanelView } from "atom-message-panel";
+import { LinterBody } from "./types";
 
-const VALID_SEVERITY = new Set(["error", "warning", "info"]);
+const VALID_SEVERITY = ["error", "warning", "info"];
 const char1glslRegex = /^(.*(?:\.|_))(v|g|f)(\.glsl)$/;
 const char2glslRegex = /^(.*(?:\.|_))(vs|tc|te|gs|fs|cs)(\.glsl)$/;
 const char1shRegex = /^(.*\.)(v|g|f)sh$/;
@@ -16,29 +17,40 @@ const defaultRegex = /^(.*\.)(vert|frag|geom|tesc|tese|comp)$/;
 const compileRegex = "^([\\w \\-]+): (\\d+):(\\d+): (.*)$";
 const linkRegex = "^([\\w \\-]+): Linking {{typeName}} stage: (.*)$";
 
-type ShaderType = {
+interface ShaderType {
     char1?: string;
     char2: string;
     char4: string;
     name: string;
-};
+}
 
-type Shader = {
+interface Shader {
     type: ShaderType;
     name: string;
     fullFilename?: string;
     contents: string;
-};
+    outFilename?: string;
+}
+
+interface ShaderTokens {
+    linkTargets: ShaderType[];
+    linkTargetPattern: string;
+    baseFilename: string;
+    baseShaderType: ShaderType;
+    dirName: string;
+    outFilename: string;
+    fullFilename: string;
+}
 
 type Range = [[number, number], [number, number]];
-type LintResult = {
+interface LintResult {
     severity: string;
     excerpt: string;
     location: {
         file?: string;
         position: Range;
     };
-};
+}
 
 const shaderTypes: ShaderType[] = [
     {
@@ -78,14 +90,16 @@ const shaderTypes: ShaderType[] = [
 
 const getSeverity = (givenSeverity: string): string => {
     const severity = givenSeverity.toLowerCase();
-    return VALID_SEVERITY.has(severity) ? severity : "warning";
+    return VALID_SEVERITY.includes(severity) ? severity : "warning";
 };
 
 const shaderTypeLookup = (
     fieldName: keyof ShaderType,
     fieldValue: string
 ): ShaderType =>
-    shaderTypes.filter(shaderType => shaderType[fieldName] === fieldValue)[0];
+    shaderTypes.filter(
+        (shaderType): boolean => shaderType[fieldName] === fieldValue
+    )[0];
 
 const shaderByChar1 = (char1: string): ShaderType =>
     shaderTypeLookup("char1", char1);
@@ -98,15 +112,15 @@ const parseGlslValidatorResponse = (
     inputs: Shader[],
     output: string,
     firstRowRange: Range
-) =>
-    new Promise(resolve => {
+): Promise<LintResult[]> =>
+    new Promise((resolve): void => {
         const toReturn: LintResult[] = [];
 
-        inputs.forEach(shader => {
+        inputs.forEach((shader): void => {
             let compileStarted = false;
             const typeName = shader.type.name;
 
-            output.split(os.EOL).forEach((line: string) => {
+            output.split(os.EOL).forEach((line: string): void => {
                 if (line.endsWith(shader.name)) {
                     compileStarted = true;
                 } else if (compileStarted || inputs.length === 1) {
@@ -157,7 +171,7 @@ const parseGlslValidatorResponse = (
         resolve(toReturn);
     });
 
-const extractShaderFilenameTokens = (shaderFilename: string) => {
+const extractShaderFilenameTokens = (shaderFilename: string): ShaderTokens => {
     const fileName = path.basename(shaderFilename);
     const dirName = path.dirname(shaderFilename);
 
@@ -180,7 +194,7 @@ const extractShaderFilenameTokens = (shaderFilename: string) => {
         baseExtension = extChar1GlslMatch[3];
 
         linkTargets = shaderTypes.filter(
-            shaderType => shaderType !== baseShaderType
+            (shaderType): boolean => shaderType !== baseShaderType
         );
         linkTargetPattern = `${baseFilename}{{char1}}${baseExtension}`;
     } else if (extChar2GlslMatch) {
@@ -189,7 +203,7 @@ const extractShaderFilenameTokens = (shaderFilename: string) => {
         baseExtension = extChar2GlslMatch[3];
 
         linkTargets = shaderTypes.filter(
-            shaderType => shaderType !== baseShaderType
+            (shaderType): boolean => shaderType !== baseShaderType
         );
         linkTargetPattern = `${baseFilename}{{char2}}${baseExtension}`;
     } else if (extChar1ShMatch) {
@@ -198,7 +212,7 @@ const extractShaderFilenameTokens = (shaderFilename: string) => {
         baseExtension = extChar1ShMatch[3];
 
         linkTargets = shaderTypes.filter(
-            shaderType => shaderType !== baseShaderType
+            (shaderType): boolean => shaderType !== baseShaderType
         );
         linkTargetPattern = `${baseFilename}{{char1}}${baseExtension}`;
     } else if (extChar2Match) {
@@ -207,7 +221,7 @@ const extractShaderFilenameTokens = (shaderFilename: string) => {
         baseExtension = extChar2Match[3];
 
         linkTargets = shaderTypes.filter(
-            shaderType => shaderType !== baseShaderType
+            (shaderType): boolean => shaderType !== baseShaderType
         );
         linkTargetPattern = `${baseFilename}{{char2}}${baseExtension}`;
     } else if (extDefaultMatch) {
@@ -216,7 +230,7 @@ const extractShaderFilenameTokens = (shaderFilename: string) => {
         baseExtension = extDefaultMatch[2];
 
         linkTargets = shaderTypes.filter(
-            shaderType => shaderType !== baseShaderType
+            (shaderType): boolean => shaderType !== baseShaderType
         );
         linkTargetPattern = `${baseFilename}{{char4}}`;
     } else {
@@ -240,12 +254,12 @@ const extractShaderFilenameTokens = (shaderFilename: string) => {
 };
 
 // Internal states
-type State = {
-    subscriptions?: CompositeDisposable;
+interface State {
+    subscriptions?: Atom.CompositeDisposable;
     linkSimilarShaders: boolean;
     glslangValidatorPath?: string;
-    messages?: any;
-};
+    messages?: MessagePanelView;
+}
 const state: State = {
     linkSimilarShaders: false
 };
@@ -264,25 +278,23 @@ export default {
         }
     },
 
-    activate() {
+    activate(): void {
         require("atom-package-deps").install("linter-glsl");
+        const { PlainMessageView } = require("atom-message-panel"); // eslint-disable-line
 
-        // eslint-disable-next-line import/no-extraneous-dependencies
-        const { PlainMessageView } = require("atom-message-panel");
-
-        state.subscriptions = new CompositeDisposable();
+        state.subscriptions = new Atom.CompositeDisposable();
 
         state.subscriptions.add(
             atom.config.observe(
                 "linter-glsl.linkSimilarShaders",
-                linkSimilarShaders => {
+                (linkSimilarShaders: boolean): void => {
                     state.linkSimilarShaders = linkSimilarShaders;
                 }
             ),
             atom.config.observe(
                 "linter-glsl.glslangValidatorPath",
-                glslangValidatorPath => {
-                    glslangValidatorPath =
+                (glslangValidatorPath: string): void => {
+                    state.glslangValidatorPath =
                         module.exports.config.glslangValidatorPath.default;
                     if (
                         fs.existsSync(glslangValidatorPath) &&
@@ -335,21 +347,21 @@ export default {
         );
     },
 
-    deactivate() {
+    deactivate(): void {
         if (state.subscriptions) {
             state.subscriptions.dispose();
         }
     },
 
-    provideLinter() {
-        const helpers = require("atom-linter");
+    provideLinter(): LinterBody {
+        const helpers = require("atom-linter"); // eslint-disable-line
 
         return {
             name: "glsl",
             grammarScopes: ["source.glsl"],
             scope: "file",
             lintsOnChange: true,
-            lint: (editor: TextEditor) => {
+            lint: (editor: Atom.TextEditor): Promise<null> => {
                 const file = editor.getPath();
                 const content = editor.getText();
                 let command = state.glslangValidatorPath;
@@ -359,9 +371,12 @@ export default {
                         module.exports.config.glslangValidatorPath.default;
                 }
 
-                const shaderFileTokens = extractShaderFilenameTokens(file!);
+                if (!file) {
+                    throw "editor.getPath failed"; // TODO: fix
+                }
+                const shaderFileTokens = extractShaderFilenameTokens(file);
 
-                let filesToValidate = [
+                let filesToValidate: Shader[] = [
                     {
                         name: shaderFileTokens.outFilename,
                         fullFilename: file,
@@ -374,26 +389,28 @@ export default {
                 if (state.linkSimilarShaders) {
                     filesToValidate = filesToValidate.concat(
                         shaderFileTokens.linkTargets
-                            .map(target =>
+                            .map((target: ShaderType): string =>
                                 shaderFileTokens.linkTargetPattern
-                                    .replace("{{char1}}", target.char1!)
+                                    .replace("{{char1}}", target.char1 || "")
                                     .replace("{{char2}}", target.char2)
                                     .replace("{{char4}}", target.char4)
                             )
-                            .map(shader =>
+                            .map((shader: string): string =>
                                 path.join(shaderFileTokens.dirName, shader)
                             )
                             .filter(fs.existsSync)
                             .map(extractShaderFilenameTokens)
-                            .map(shader => ({
-                                name: shader.outFilename,
-                                fullFilename: shader.fullFilename,
-                                type: shader.baseShaderType,
-                                contents: fs.readFileSync(
-                                    shader.fullFilename,
-                                    "UTF-8"
-                                )
-                            }))
+                            .map(
+                                (shader: ShaderTokens): Shader => ({
+                                    name: shader.outFilename,
+                                    fullFilename: shader.fullFilename,
+                                    type: shader.baseShaderType,
+                                    contents: fs.readFileSync(
+                                        shader.fullFilename,
+                                        "UTF-8"
+                                    )
+                                })
+                            )
                     );
 
                     if (filesToValidate.length > 1) {
@@ -401,20 +418,23 @@ export default {
                     }
                 }
                 return helpers
-                    .tempFiles(filesToValidate, (files: string[]) =>
-                        helpers.exec(command, args.concat(files), {
-                            stream: "stdout",
-                            ignoreExitCode: true
-                        })
+                    .tempFiles(
+                        filesToValidate,
+                        (files: string[]): Promise<void> =>
+                            helpers.exec(command, args.concat(files), {
+                                stream: "stdout",
+                                ignoreExitCode: true
+                            })
                     )
-                    .then((output: string) =>
-                        parseGlslValidatorResponse(
-                            filesToValidate,
-                            output,
-                            helpers.generateRange(editor, 0)
-                        )
+                    .then(
+                        (output: string): Promise<LintResult[]> =>
+                            parseGlslValidatorResponse(
+                                filesToValidate,
+                                output,
+                                helpers.generateRange(editor, 0)
+                            )
                     )
-                    .catch((error: Error) => {
+                    .catch((error: Error): null => {
                         // eslint-disable-next-line no-console
                         console.error(error);
                         // Since something went wrong executing, return null so
