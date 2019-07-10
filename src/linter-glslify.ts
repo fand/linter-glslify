@@ -6,6 +6,7 @@ import which from "which";
 import * as Atom from "atom";
 import { MessagePanelView } from "atom-message-panel";
 import { LinterBody, Message, RangeOrArray, Severity } from "./types";
+const { PlainMessageView } = require("atom-message-panel"); // eslint-disable-line
 
 const char1glslRegex = /^(.*(?:\.|_))(v|g|f)(\.glsl)$/;
 const char2glslRegex = /^(.*(?:\.|_))(vs|tc|te|gs|fs|cs)(\.glsl)$/;
@@ -216,76 +217,32 @@ const extractShaderFilenameTokens = (shaderFilename: string): ShaderTokens => {
     };
 };
 
+const DEFAULT_VALIDATOR_PATH = "glslangValidator";
+
 class Linter {
     public config = {
         glslangValidatorPath: {
             type: "string",
-            default: "glslangValidator",
+            default: DEFAULT_VALIDATOR_PATH,
             order: 1
         }
     };
     private subscriptions?: Atom.CompositeDisposable = undefined;
-    private glslangValidatorPath?: string = undefined;
-    private messages?: MessagePanelView = undefined;
+    private glslangValidatorPath: string = DEFAULT_VALIDATOR_PATH;
+    private messagePanel = new MessagePanelView({
+        title: "linter-glslify"
+    });
 
     public activate(): void {
         require("atom-package-deps").install("linter-glsl");
-        const { PlainMessageView } = require("atom-message-panel"); // eslint-disable-line
+
+        this.messagePanel.attach();
 
         this.subscriptions = new Atom.CompositeDisposable();
-
         this.subscriptions.add(
             atom.config.observe(
-                "linter-glsl.glslangValidatorPath",
-                (glslangValidatorPath: string): void => {
-                    this.glslangValidatorPath = this.config.glslangValidatorPath.default;
-                    if (
-                        fs.existsSync(glslangValidatorPath) &&
-                        fs.statSync(glslangValidatorPath).isFile()
-                    ) {
-                        try {
-                            fs.accessSync(
-                                glslangValidatorPath,
-                                fs.constants.X_OK
-                            );
-                            this.glslangValidatorPath = glslangValidatorPath;
-                        } catch (error) {
-                            // eslint-disable-next-line no-console
-                            console.log(error);
-                        }
-                    } else {
-                        try {
-                            this.glslangValidatorPath = which.sync(
-                                glslangValidatorPath
-                            );
-                        } catch (error) {
-                            // eslint-disable-next-line no-console
-                            console.log(error);
-                        }
-                    }
-
-                    if (this.glslangValidatorPath) {
-                        if (this.messages) {
-                            this.messages.close();
-                            this.messages = undefined;
-                        }
-                    } else {
-                        if (!this.messages) {
-                            this.messages = new MessagePanelView({
-                                title: "linter-glslify"
-                            });
-                            this.messages.attach();
-                            this.messages.toggle();
-                        }
-                        this.messages.clear();
-                        this.messages.add(
-                            new PlainMessageView({
-                                message: `Unable to locate glslangValidator at '${glslangValidatorPath}'`,
-                                className: "text-error"
-                            })
-                        );
-                    }
-                }
+                "linter-glslify.glslangValidatorPath",
+                this.onChangeValidatorPath
             )
         );
     }
@@ -309,12 +266,6 @@ class Linter {
             ): Promise<Message[] | null> => {
                 const file = editor.getPath();
                 const content = editor.getText();
-                let command = this.glslangValidatorPath;
-
-                if (this.glslangValidatorPath === undefined) {
-                    command =
-                        module.exports.config.glslangValidatorPath.default;
-                }
 
                 if (!file) {
                     throw "editor.getPath failed"; // TODO: fix
@@ -334,7 +285,7 @@ class Linter {
                     const output = await helpers.tempFiles(
                         filesToValidate,
                         (files: string[]): Promise<void> =>
-                            helpers.exec(command, files, {
+                            helpers.exec(this.glslangValidatorPath, files, {
                                 stream: "stdout",
                                 ignoreExitCode: true
                             })
@@ -353,6 +304,55 @@ class Linter {
                 return null;
             }
         };
+    }
+
+    private onChangeValidatorPath = (_validatorPath: string): void => {
+        let isValid = true;
+        let validatorPath = _validatorPath;
+
+        // Check new path
+        if (
+            fs.existsSync(validatorPath) &&
+            fs.statSync(validatorPath).isFile()
+        ) {
+            try {
+                fs.accessSync(validatorPath, fs.constants.X_OK);
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.log(error);
+                isValid = false;
+            }
+        } else {
+            try {
+                validatorPath = which.sync(validatorPath);
+            } catch (error) {
+                console.log(error); // eslint-disable-line no-console
+                isValid = false;
+            }
+        }
+
+        if (isValid) {
+            this.glslangValidatorPath = validatorPath;
+            this.hideMessagePanel();
+        } else {
+            this.showErrorOnMessagePanel(
+                `Unable to locate glslangValidator at '${validatorPath}'`
+            );
+        }
+    };
+
+    private showErrorOnMessagePanel(msg: string): void {
+        this.messagePanel.clear();
+        this.messagePanel.add(
+            new PlainMessageView({
+                message: msg,
+                className: "text-error"
+            })
+        );
+    }
+
+    private hideMessagePanel(): void {
+        this.messagePanel.close();
     }
 }
 
