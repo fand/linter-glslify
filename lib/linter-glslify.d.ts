@@ -8,11 +8,14 @@ declare class Linter {
         };
     };
     private subscriptions?;
-    private glslangValidatorPath?;
-    private messages?;
+    private glslangValidatorPath;
+    private messagePanel;
     activate(): void;
     deactivate(): void;
     provideLinter(): LinterBody;
+    private onChangeValidatorPath;
+    private showErrorOnMessagePanel;
+    private hideMessagePanel;
 }
 declare const _default: Linter;
 export default _default;

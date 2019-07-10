@@ -15,7 +15,6 @@ const char2Regex = /^(.*\.)(vs|tc|te|gs|fs|cs)$/;
 const defaultRegex = /^(.*\.)(vert|frag|geom|tesc|tese|comp)$/;
 
 const compileRegex = "^([\\w \\-]+): (\\d+):(\\d+): (.*)$";
-const linkRegex = "^([\\w \\-]+): Linking {{typeName}} stage: (.*)$";
 
 interface ShaderType {
     char1?: string;
@@ -25,7 +24,6 @@ interface ShaderType {
 }
 
 interface Shader {
-    type: ShaderType;
     name: string;
     fullFilename?: string;
     contents: string;
@@ -109,65 +107,44 @@ const shaderByChar4 = (char4: string): ShaderType =>
     shaderTypeLookup("char4", char4);
 
 const parseGlslValidatorResponse = (
-    inputs: Shader[],
-    output: string,
-    firstRowRange: RangeOrArray
+    shader: Shader,
+    output: string
 ): Promise<LintResult[]> =>
     new Promise((resolve): void => {
         const toReturn: LintResult[] = [];
 
-        inputs.forEach((shader): void => {
-            let compileStarted = false;
-            const typeName = shader.type.name;
+        output.split(os.EOL).forEach((line: string): void => {
+            if (line.endsWith(shader.name)) {
+                return;
+            }
 
-            output.split(os.EOL).forEach((line: string): void => {
-                if (line.endsWith(shader.name)) {
-                    compileStarted = true;
-                } else if (compileStarted || inputs.length === 1) {
-                    const match = new RegExp(compileRegex).exec(line);
-                    if (match) {
-                        const lineStart = parseInt(match[3], 10);
-                        const colStart = parseInt(match[2], 10);
-                        const lineEnd = lineStart;
-                        const colEnd = colStart;
+            const match = new RegExp(compileRegex).exec(line);
+            if (match) {
+                const lineStart = parseInt(match[3], 10);
+                const colStart = parseInt(match[2], 10);
+                const lineEnd = lineStart;
+                const colEnd = colStart;
 
-                        toReturn.push({
-                            severity: getSeverity(match[1]),
-                            excerpt: match[4].trim(),
-                            location: {
-                                file: shader.fullFilename,
-                                position: [
-                                    [
-                                        lineStart > 0 ? lineStart - 1 : 0,
-                                        colStart > 0 ? colStart - 1 : 0
-                                    ],
-                                    [
-                                        lineEnd > 0 ? lineEnd - 1 : 0,
-                                        colEnd > 0 ? colEnd - 1 : 0
-                                    ]
-                                ]
-                            }
-                        });
-                    } else {
-                        compileStarted = false;
+                toReturn.push({
+                    severity: getSeverity(match[1]),
+                    excerpt: match[4].trim(),
+                    location: {
+                        file: shader.fullFilename,
+                        position: [
+                            [
+                                lineStart > 0 ? lineStart - 1 : 0,
+                                colStart > 0 ? colStart - 1 : 0
+                            ],
+                            [
+                                lineEnd > 0 ? lineEnd - 1 : 0,
+                                colEnd > 0 ? colEnd - 1 : 0
+                            ]
+                        ]
                     }
-                }
-
-                const linkMatch = new RegExp(
-                    linkRegex.replace("{{typeName}}", typeName)
-                ).exec(line);
-                if (linkMatch) {
-                    toReturn.push({
-                        severity: getSeverity(linkMatch[1]),
-                        excerpt: linkMatch[2].trim(),
-                        location: {
-                            file: shader.fullFilename,
-                            position: firstRowRange
-                        }
-                    });
-                }
-            });
+                });
+            }
         });
+
         resolve(toReturn);
     });
 
@@ -276,12 +253,12 @@ class Linter {
                     {
                         name: shaderFileTokens.outFilename,
                         fullFilename: file,
-                        type: shaderFileTokens.baseShaderType,
                         contents: content
                     }
                 ];
 
                 try {
+                    // Save files to tempfile, then run validator with them
                     const output = await helpers.tempFiles(
                         filesToValidate,
                         (files: string[]): Promise<void> =>
@@ -292,9 +269,8 @@ class Linter {
                     );
 
                     return await parseGlslValidatorResponse(
-                        filesToValidate,
-                        output,
-                        helpers.generateRange(editor, 0)
+                        filesToValidate[0],
+                        output
                     );
                 } catch (e) {
                     // Since something went wrong executing, return null so
