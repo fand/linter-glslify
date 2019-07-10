@@ -7,7 +7,6 @@ import * as Atom from "atom";
 import { MessagePanelView } from "atom-message-panel";
 import { LinterBody } from "./types";
 
-const VALID_SEVERITY = ["error", "warning", "info"];
 const char1glslRegex = /^(.*(?:\.|_))(v|g|f)(\.glsl)$/;
 const char2glslRegex = /^(.*(?:\.|_))(vs|tc|te|gs|fs|cs)(\.glsl)$/;
 const char1shRegex = /^(.*\.)(v|g|f)sh$/;
@@ -86,9 +85,13 @@ const shaderTypes: ShaderType[] = [
     }
 ];
 
-const getSeverity = (givenSeverity: string): string => {
-    const severity = givenSeverity.toLowerCase();
-    return VALID_SEVERITY.includes(severity) ? severity : "warning";
+type severity = "error" | "warning" | "info";
+const isValidSeverity = (x: string): x is severity => {
+    return ["error", "warning", "info"].includes(x);
+};
+const getSeverity = (_str: string): severity => {
+    const str = _str.toLowerCase();
+    return isValidSeverity(str) ? str : "warning";
 };
 
 const shaderTypeLookup = (
