@@ -5,7 +5,7 @@ import which from "which";
 
 import * as Atom from "atom";
 import { MessagePanelView } from "atom-message-panel";
-import { LinterBody } from "./types";
+import { LinterBody, Message, RangeOrArray, Severity } from "./types";
 
 const char1glslRegex = /^(.*(?:\.|_))(v|g|f)(\.glsl)$/;
 const char2glslRegex = /^(.*(?:\.|_))(vs|tc|te|gs|fs|cs)(\.glsl)$/;
@@ -39,13 +39,12 @@ interface ShaderTokens {
     fullFilename: string;
 }
 
-type Range = [[number, number], [number, number]];
 interface LintResult {
-    severity: string;
+    severity: Severity;
     excerpt: string;
     location: {
         file?: string;
-        position: Range;
+        position: RangeOrArray;
     };
 }
 
@@ -85,11 +84,10 @@ const shaderTypes: ShaderType[] = [
     }
 ];
 
-type severity = "error" | "warning" | "info";
-const isValidSeverity = (x: string): x is severity => {
+const isValidSeverity = (x: string): x is Severity => {
     return ["error", "warning", "info"].includes(x);
 };
-const getSeverity = (_str: string): severity => {
+const getSeverity = (_str: string): Severity => {
     const str = _str.toLowerCase();
     return isValidSeverity(str) ? str : "warning";
 };
@@ -112,7 +110,7 @@ const shaderByChar4 = (char4: string): ShaderType =>
 const parseGlslValidatorResponse = (
     inputs: Shader[],
     output: string,
-    firstRowRange: Range
+    firstRowRange: RangeOrArray
 ): Promise<LintResult[]> =>
     new Promise((resolve): void => {
         const toReturn: LintResult[] = [];
@@ -306,7 +304,9 @@ class Linter {
             grammarScopes: ["source.glsl"],
             scope: "file",
             lintsOnChange: true,
-            lint: (editor: Atom.TextEditor): Promise<null> => {
+            lint: async (
+                editor: Atom.TextEditor
+            ): Promise<Message[] | null> => {
                 const file = editor.getPath();
                 const content = editor.getText();
                 let command = this.glslangValidatorPath;
@@ -321,7 +321,7 @@ class Linter {
                 }
                 const shaderFileTokens = extractShaderFilenameTokens(file);
 
-                let filesToValidate: Shader[] = [
+                const filesToValidate = [
                     {
                         name: shaderFileTokens.outFilename,
                         fullFilename: file,
@@ -329,32 +329,28 @@ class Linter {
                         contents: content
                     }
                 ];
-                let args: string[] = [];
 
-                return helpers
-                    .tempFiles(
+                try {
+                    const output = await helpers.tempFiles(
                         filesToValidate,
                         (files: string[]): Promise<void> =>
-                            helpers.exec(command, args.concat(files), {
+                            helpers.exec(command, files, {
                                 stream: "stdout",
                                 ignoreExitCode: true
                             })
-                    )
-                    .then(
-                        (output: string): Promise<LintResult[]> =>
-                            parseGlslValidatorResponse(
-                                filesToValidate,
-                                output,
-                                helpers.generateRange(editor, 0)
-                            )
-                    )
-                    .catch((error: Error): null => {
-                        // eslint-disable-next-line no-console
-                        console.error(error);
-                        // Since something went wrong executing, return null so
-                        // Linter doesn't update any current results
-                        return null;
-                    });
+                    );
+
+                    return await parseGlslValidatorResponse(
+                        filesToValidate,
+                        output,
+                        helpers.generateRange(editor, 0)
+                    );
+                } catch (e) {
+                    // Since something went wrong executing, return null so
+                    // Linter doesn't update any current results.
+                    console.error(e); // eslint-disable-line no-console
+                }
+                return null;
             }
         };
     }
