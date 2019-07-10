@@ -56,44 +56,43 @@ const parseGlslValidatorResponse = (
     shaderName: string,
     fullFileName: string,
     output: string
-): Promise<LintResult[]> =>
-    new Promise((resolve): void => {
-        const toReturn: LintResult[] = [];
+): LintResult[] => {
+    const toReturn: LintResult[] = [];
 
-        output.split(os.EOL).forEach((line: string): void => {
-            if (line.endsWith(shaderName)) {
-                return;
-            }
+    output.split(os.EOL).forEach((line: string): void => {
+        if (line.endsWith(shaderName)) {
+            return;
+        }
 
-            const match = compileRegex.exec(line);
-            if (match) {
-                const lineStart = parseInt(match[3], 10);
-                const colStart = parseInt(match[2], 10);
-                const lineEnd = lineStart;
-                const colEnd = colStart;
+        const match = compileRegex.exec(line);
+        if (match) {
+            const lineStart = parseInt(match[3], 10);
+            const colStart = parseInt(match[2], 10);
+            const lineEnd = lineStart;
+            const colEnd = colStart;
 
-                toReturn.push({
-                    severity: getSeverity(match[1]),
-                    excerpt: match[4].trim(),
-                    location: {
-                        file: fullFileName,
-                        position: [
-                            [
-                                lineStart > 0 ? lineStart - 1 : 0,
-                                colStart > 0 ? colStart - 1 : 0
-                            ],
-                            [
-                                lineEnd > 0 ? lineEnd - 1 : 0,
-                                colEnd > 0 ? colEnd - 1 : 0
-                            ]
+            toReturn.push({
+                severity: getSeverity(match[1]),
+                excerpt: match[4].trim(),
+                location: {
+                    file: fullFileName,
+                    position: [
+                        [
+                            lineStart > 0 ? lineStart - 1 : 0,
+                            colStart > 0 ? colStart - 1 : 0
+                        ],
+                        [
+                            lineEnd > 0 ? lineEnd - 1 : 0,
+                            colEnd > 0 ? colEnd - 1 : 0
                         ]
-                    }
-                });
-            }
-        });
-
-        resolve(toReturn);
+                    ]
+                }
+            });
+        }
     });
+
+    return toReturn;
+};
 
 const getShaderName = (shaderFilename: string): string => {
     const basename = path.basename(shaderFilename);
@@ -172,7 +171,7 @@ class Linter {
                         tmpfile
                     ]);
 
-                    return await parseGlslValidatorResponse(
+                    return parseGlslValidatorResponse(
                         shaderName,
                         filepath,
                         result.stdout
