@@ -7,8 +7,8 @@ declare class Linter {
             order: number;
         };
     };
-    private subscriptions?;
     private glslangValidatorPath;
+    private subscriptions;
     private messagePanel;
     activate(): void;
     deactivate(): void;

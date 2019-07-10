@@ -10,35 +10,12 @@ import { MessagePanelView } from "atom-message-panel";
 import { LinterBody, Message, RangeOrArray, Severity } from "./types";
 const { PlainMessageView } = require("atom-message-panel"); // eslint-disable-line
 
-const char1glslRegex = /^(.*(?:\.|_))(v|g|f)(\.glsl)$/;
-const char2glslRegex = /^(.*(?:\.|_))(vs|tc|te|gs|fs|cs)(\.glsl)$/;
-const char1shRegex = /^(.*\.)(v|g|f)sh$/;
-const char2Regex = /^(.*\.)(vs|tc|te|gs|fs|cs)$/;
-const defaultRegex = /^(.*\.)(vert|frag|geom|tesc|tese|comp)$/;
-
-const compileRegex = "^([\\w \\-]+): (\\d+):(\\d+): (.*)$";
-
-interface ShaderType {
-    char1?: string;
-    char2: string;
-    char4: string;
-    name: string;
-}
-
-interface Shader {
-    name: string;
-    fullFilename?: string;
-    contents: string;
-    outFilename?: string;
-}
-
-interface ShaderTokens {
-    baseFilename: string;
-    baseShaderType: ShaderType;
-    dirName: string;
-    outFilename: string;
-    fullFilename: string;
-}
+const char1glslRegex = /^(.*)(?:\.|_)(v|g|f)(\.glsl)$/;
+const char2glslRegex = /^(.*)(?:\.|_)(vs|tc|te|gs|fs|cs)(\.glsl)$/;
+const char1shRegex = /^(.*)\.(v|g|f)sh$/;
+const char2Regex = /^(.*)\.(vs|tc|te|gs|fs|cs)$/;
+const defaultRegex = /^(.*)\.(vert|frag|geom|tesc|tese|comp)$/;
+const compileRegex = /^([\\w \\-]+): (\\d+):(\\d+): (.*)$/;
 
 interface LintResult {
     severity: Severity;
@@ -49,41 +26,23 @@ interface LintResult {
     };
 }
 
-const shaderTypes: ShaderType[] = [
-    {
-        char1: "v",
-        char2: "vs",
-        char4: "vert",
-        name: "vertex"
-    },
-    {
-        char1: "f",
-        char2: "fs",
-        char4: "frag",
-        name: "fragment"
-    },
-    {
-        char1: "g",
-        char2: "gs",
-        char4: "geom",
-        name: "geometry"
-    },
-    {
-        char2: "te",
-        char4: "tese",
-        name: "tessellation evaluation"
-    },
-    {
-        char2: "tc",
-        char4: "tesc",
-        name: "tessellation control"
-    },
-    {
-        char2: "cs",
-        char4: "comp",
-        name: "compute"
-    }
-];
+const formatExt: { [ext: string]: string } = {
+    v: "vert",
+    vs: "vert",
+    vert: "vert",
+    f: "frag",
+    fs: "frag",
+    frag: "frag",
+    g: "geom",
+    gs: "geom",
+    geom: "geom",
+    te: "tese",
+    tese: "tese",
+    tc: "tesc",
+    tesc: "tesc",
+    cs: "comp",
+    comp: "comp"
+};
 
 const isValidSeverity = (x: string): x is Severity => {
     return ["error", "warning", "info"].includes(x);
@@ -93,34 +52,20 @@ const getSeverity = (_str: string): Severity => {
     return isValidSeverity(str) ? str : "warning";
 };
 
-const shaderTypeLookup = (
-    fieldName: keyof ShaderType,
-    fieldValue: string
-): ShaderType =>
-    shaderTypes.filter(
-        (shaderType): boolean => shaderType[fieldName] === fieldValue
-    )[0];
-
-const shaderByChar1 = (char1: string): ShaderType =>
-    shaderTypeLookup("char1", char1);
-const shaderByChar2 = (char2: string): ShaderType =>
-    shaderTypeLookup("char2", char2);
-const shaderByChar4 = (char4: string): ShaderType =>
-    shaderTypeLookup("char4", char4);
-
 const parseGlslValidatorResponse = (
-    shader: Shader,
+    shaderName: string,
+    fullFileName: string,
     output: string
 ): Promise<LintResult[]> =>
     new Promise((resolve): void => {
         const toReturn: LintResult[] = [];
 
         output.split(os.EOL).forEach((line: string): void => {
-            if (line.endsWith(shader.name)) {
+            if (line.endsWith(shaderName)) {
                 return;
             }
 
-            const match = new RegExp(compileRegex).exec(line);
+            const match = compileRegex.exec(line);
             if (match) {
                 const lineStart = parseInt(match[3], 10);
                 const colStart = parseInt(match[2], 10);
@@ -131,7 +76,7 @@ const parseGlslValidatorResponse = (
                     severity: getSeverity(match[1]),
                     excerpt: match[4].trim(),
                     location: {
-                        file: shader.fullFilename,
+                        file: fullFileName,
                         position: [
                             [
                                 lineStart > 0 ? lineStart - 1 : 0,
@@ -150,50 +95,24 @@ const parseGlslValidatorResponse = (
         resolve(toReturn);
     });
 
-const extractShaderFilenameTokens = (shaderFilename: string): ShaderTokens => {
-    const fileName = path.basename(shaderFilename);
-    const dirName = path.dirname(shaderFilename);
+const getShaderName = (shaderFilename: string): string => {
+    const basename = path.basename(shaderFilename);
 
-    let baseFilename;
-    let baseShaderType: ShaderType;
+    const m =
+        char1glslRegex.exec(basename) ||
+        char2glslRegex.exec(basename) ||
+        char2Regex.exec(basename) ||
+        char1shRegex.exec(basename) ||
+        defaultRegex.exec(basename);
 
-    const extChar1GlslMatch = char1glslRegex.exec(fileName);
-    const extChar2GlslMatch = char2glslRegex.exec(fileName);
-    const extChar2Match = char2Regex.exec(fileName);
-    const extChar1ShMatch = char1shRegex.exec(fileName);
-    const extDefaultMatch = defaultRegex.exec(fileName);
-
-    if (extChar1GlslMatch) {
-        baseFilename = extChar1GlslMatch[1];
-        baseShaderType = shaderByChar1(extChar1GlslMatch[2]);
-    } else if (extChar2GlslMatch) {
-        baseFilename = extChar2GlslMatch[1];
-        baseShaderType = shaderByChar2(extChar2GlslMatch[2]);
-    } else if (extChar1ShMatch) {
-        baseFilename = extChar1ShMatch[1];
-        baseShaderType = shaderByChar1(extChar1ShMatch[2]);
-    } else if (extChar2Match) {
-        baseFilename = extChar2Match[1];
-        baseShaderType = shaderByChar2(extChar2Match[2]);
-    } else if (extDefaultMatch) {
-        baseFilename = extDefaultMatch[1];
-        baseShaderType = shaderByChar4(extDefaultMatch[2]);
-    } else {
+    if (!m) {
         throw Error("Unknown shader type");
     }
 
-    let outFilename = baseFilename;
-    if (!outFilename.endsWith(".")) outFilename += ".";
+    const name = m[1];
+    const ext = formatExt[m[2]];
 
-    outFilename += baseShaderType.char4;
-
-    return {
-        baseFilename,
-        baseShaderType,
-        dirName,
-        outFilename,
-        fullFilename: shaderFilename
-    };
+    return `${name}.${ext}`;
 };
 
 const DEFAULT_VALIDATOR_PATH = "glslangValidator";
@@ -206,8 +125,9 @@ class Linter {
             order: 1
         }
     };
-    private subscriptions?: Atom.CompositeDisposable = undefined;
+
     private glslangValidatorPath: string = DEFAULT_VALIDATOR_PATH;
+    private subscriptions = new Atom.CompositeDisposable();
     private messagePanel = new MessagePanelView({
         title: "linter-glslify"
     });
@@ -216,8 +136,6 @@ class Linter {
         require("atom-package-deps").install("linter-glsl");
 
         this.messagePanel.attach();
-
-        this.subscriptions = new Atom.CompositeDisposable();
         this.subscriptions.add(
             atom.config.observe(
                 "linter-glslify.glslangValidatorPath",
@@ -227,9 +145,7 @@ class Linter {
     }
 
     public deactivate(): void {
-        if (this.subscriptions) {
-            this.subscriptions.dispose();
-        }
+        this.subscriptions.dispose();
     }
 
     public provideLinter(): LinterBody {
@@ -241,21 +157,13 @@ class Linter {
             lint: async (
                 editor: Atom.TextEditor
             ): Promise<Message[] | null> => {
-                const file = editor.getPath();
+                const filepath = editor.getPath();
                 const content = editor.getText();
 
-                if (!file) {
+                if (!filepath) {
                     throw "editor.getPath failed"; // TODO: fix
                 }
-                const shaderFileTokens = extractShaderFilenameTokens(file);
-
-                const filesToValidate = [
-                    {
-                        name: shaderFileTokens.outFilename,
-                        fullFilename: file,
-                        contents: content
-                    }
-                ];
+                const shaderName = getShaderName(filepath);
 
                 try {
                     // Save files to tempfile, then run validator with them
@@ -265,7 +173,8 @@ class Linter {
                     ]);
 
                     return await parseGlslValidatorResponse(
-                        filesToValidate[0],
+                        shaderName,
+                        filepath,
                         result.stdout
                     );
                 } catch (e) {
@@ -273,6 +182,7 @@ class Linter {
                     // Linter doesn't update any current results.
                     console.error(e); // eslint-disable-line no-console
                 }
+
                 return null;
             }
         };
