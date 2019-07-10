@@ -2,6 +2,8 @@ import * as os from "os";
 import * as fs from "fs";
 import * as path from "path";
 import which from "which";
+import tempWrite from "temp-write";
+import execa from "execa";
 
 import * as Atom from "atom";
 import { MessagePanelView } from "atom-message-panel";
@@ -231,8 +233,6 @@ class Linter {
     }
 
     public provideLinter(): LinterBody {
-        const helpers = require("atom-linter"); // eslint-disable-line
-
         return {
             name: "glsl",
             grammarScopes: ["source.glsl"],
@@ -259,18 +259,14 @@ class Linter {
 
                 try {
                     // Save files to tempfile, then run validator with them
-                    const output = await helpers.tempFiles(
-                        filesToValidate,
-                        (files: string[]): Promise<void> =>
-                            helpers.exec(this.glslangValidatorPath, files, {
-                                stream: "stdout",
-                                ignoreExitCode: true
-                            })
-                    );
+                    const tmpfile = await tempWrite(content);
+                    const result = await execa(this.glslangValidatorPath, [
+                        tmpfile
+                    ]);
 
                     return await parseGlslValidatorResponse(
                         filesToValidate[0],
-                        output
+                        result.stdout
                     );
                 } catch (e) {
                     // Since something went wrong executing, return null so
