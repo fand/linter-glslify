@@ -17,10 +17,15 @@ interface SolutionApplyable {
 
 type Solution = SolutionReplacable | SolutionApplyable;
 
+export type RangeCompatibleArray = [[number, number], [number, number]];
+export type RangeOrArray = Range | RangeCompatibleArray;
+
+export type Severity = "error" | "warning" | "info";
+
 export interface Message {
     location: {
-        file: string;
-        position: Range;
+        file?: string;
+        position: RangeOrArray;
     };
     reference?: {
         file: string;
@@ -33,8 +38,8 @@ export interface Message {
     solutions?: Solution[]; // Possible solutions to the error (user can invoke them at will)
     description?: string | (() => Promise<string> | string);
     linterName?: string;
-    key: string;
-    version: 2;
+    key?: string;
+    version?: 2;
 }
 
 export interface LinterBody {
@@ -42,5 +47,5 @@ export interface LinterBody {
     grammarScopes: string[];
     scope: "file" | "project";
     lintsOnChange: boolean;
-    lint(editor: TextEditor): Message | null | Promise<Message | null>;
+    lint(editor: TextEditor): Message[] | null | Promise<Message[] | null>;
 }

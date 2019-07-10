@@ -1,5 +1,5 @@
 import { LinterBody } from "./types";
-declare const _default: {
+declare class Linter {
     config: {
         glslangValidatorPath: {
             type: string;
@@ -7,8 +7,15 @@ declare const _default: {
             order: number;
         };
     };
+    private glslangValidatorPath;
+    private subscriptions;
+    private messagePanel;
     activate(): void;
     deactivate(): void;
     provideLinter(): LinterBody;
-};
+    private onChangeValidatorPath;
+    private showErrorOnMessagePanel;
+    private hideMessagePanel;
+}
+declare const _default: Linter;
 export default _default;

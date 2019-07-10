@@ -2,363 +2,239 @@ import * as os from "os";
 import * as fs from "fs";
 import * as path from "path";
 import which from "which";
+import tempWrite from "temp-write";
+import execa from "execa";
 
 import * as Atom from "atom";
 import { MessagePanelView } from "atom-message-panel";
-import { LinterBody } from "./types";
+import { LinterBody, Message, RangeOrArray, Severity } from "./types";
+const { PlainMessageView } = require("atom-message-panel"); // eslint-disable-line
 
-const VALID_SEVERITY = ["error", "warning", "info"];
-const char1glslRegex = /^(.*(?:\.|_))(v|g|f)(\.glsl)$/;
-const char2glslRegex = /^(.*(?:\.|_))(vs|tc|te|gs|fs|cs)(\.glsl)$/;
-const char1shRegex = /^(.*\.)(v|g|f)sh$/;
-const char2Regex = /^(.*\.)(vs|tc|te|gs|fs|cs)$/;
-const defaultRegex = /^(.*\.)(vert|frag|geom|tesc|tese|comp)$/;
+const char1glslRegex = /^(.*)(?:\.|_)(v|g|f)(\.glsl)$/;
+const char2glslRegex = /^(.*)(?:\.|_)(vs|tc|te|gs|fs|cs)(\.glsl)$/;
+const char1shRegex = /^(.*)\.(v|g|f)sh$/;
+const char2Regex = /^(.*)\.(vs|tc|te|gs|fs|cs)$/;
+const defaultRegex = /^(.*)\.(vert|frag|geom|tesc|tese|comp)$/;
+const compileRegex = /^([\\w \\-]+): (\\d+):(\\d+): (.*)$/;
 
-const compileRegex = "^([\\w \\-]+): (\\d+):(\\d+): (.*)$";
-const linkRegex = "^([\\w \\-]+): Linking {{typeName}} stage: (.*)$";
-
-interface ShaderType {
-    char1?: string;
-    char2: string;
-    char4: string;
-    name: string;
-}
-
-interface Shader {
-    type: ShaderType;
-    name: string;
-    fullFilename?: string;
-    contents: string;
-    outFilename?: string;
-}
-
-interface ShaderTokens {
-    baseFilename: string;
-    baseShaderType: ShaderType;
-    dirName: string;
-    outFilename: string;
-    fullFilename: string;
-}
-
-type Range = [[number, number], [number, number]];
 interface LintResult {
-    severity: string;
+    severity: Severity;
     excerpt: string;
     location: {
         file?: string;
-        position: Range;
+        position: RangeOrArray;
     };
 }
 
-const shaderTypes: ShaderType[] = [
-    {
-        char1: "v",
-        char2: "vs",
-        char4: "vert",
-        name: "vertex"
-    },
-    {
-        char1: "f",
-        char2: "fs",
-        char4: "frag",
-        name: "fragment"
-    },
-    {
-        char1: "g",
-        char2: "gs",
-        char4: "geom",
-        name: "geometry"
-    },
-    {
-        char2: "te",
-        char4: "tese",
-        name: "tessellation evaluation"
-    },
-    {
-        char2: "tc",
-        char4: "tesc",
-        name: "tessellation control"
-    },
-    {
-        char2: "cs",
-        char4: "comp",
-        name: "compute"
-    }
-];
-
-const getSeverity = (givenSeverity: string): string => {
-    const severity = givenSeverity.toLowerCase();
-    return VALID_SEVERITY.includes(severity) ? severity : "warning";
+const formatExt: { [ext: string]: string } = {
+    v: "vert",
+    vs: "vert",
+    vert: "vert",
+    f: "frag",
+    fs: "frag",
+    frag: "frag",
+    g: "geom",
+    gs: "geom",
+    geom: "geom",
+    te: "tese",
+    tese: "tese",
+    tc: "tesc",
+    tesc: "tesc",
+    cs: "comp",
+    comp: "comp"
 };
 
-const shaderTypeLookup = (
-    fieldName: keyof ShaderType,
-    fieldValue: string
-): ShaderType =>
-    shaderTypes.filter(
-        (shaderType): boolean => shaderType[fieldName] === fieldValue
-    )[0];
-
-const shaderByChar1 = (char1: string): ShaderType =>
-    shaderTypeLookup("char1", char1);
-const shaderByChar2 = (char2: string): ShaderType =>
-    shaderTypeLookup("char2", char2);
-const shaderByChar4 = (char4: string): ShaderType =>
-    shaderTypeLookup("char4", char4);
+const isValidSeverity = (x: string): x is Severity => {
+    return ["error", "warning", "info"].includes(x);
+};
+const getSeverity = (_str: string): Severity => {
+    const str = _str.toLowerCase();
+    return isValidSeverity(str) ? str : "warning";
+};
 
 const parseGlslValidatorResponse = (
-    inputs: Shader[],
-    output: string,
-    firstRowRange: Range
-): Promise<LintResult[]> =>
-    new Promise((resolve): void => {
-        const toReturn: LintResult[] = [];
+    shaderName: string,
+    fullFileName: string,
+    output: string
+): LintResult[] => {
+    const toReturn: LintResult[] = [];
 
-        inputs.forEach((shader): void => {
-            let compileStarted = false;
-            const typeName = shader.type.name;
+    output.split(os.EOL).forEach((line: string): void => {
+        if (line.endsWith(shaderName)) {
+            return;
+        }
 
-            output.split(os.EOL).forEach((line: string): void => {
-                if (line.endsWith(shader.name)) {
-                    compileStarted = true;
-                } else if (compileStarted || inputs.length === 1) {
-                    const match = new RegExp(compileRegex).exec(line);
-                    if (match) {
-                        const lineStart = parseInt(match[3], 10);
-                        const colStart = parseInt(match[2], 10);
-                        const lineEnd = lineStart;
-                        const colEnd = colStart;
+        const match = compileRegex.exec(line);
+        if (match) {
+            const lineStart = parseInt(match[3], 10);
+            const colStart = parseInt(match[2], 10);
+            const lineEnd = lineStart;
+            const colEnd = colStart;
 
-                        toReturn.push({
-                            severity: getSeverity(match[1]),
-                            excerpt: match[4].trim(),
-                            location: {
-                                file: shader.fullFilename,
-                                position: [
-                                    [
-                                        lineStart > 0 ? lineStart - 1 : 0,
-                                        colStart > 0 ? colStart - 1 : 0
-                                    ],
-                                    [
-                                        lineEnd > 0 ? lineEnd - 1 : 0,
-                                        colEnd > 0 ? colEnd - 1 : 0
-                                    ]
-                                ]
-                            }
-                        });
-                    } else {
-                        compileStarted = false;
-                    }
-                }
-
-                const linkMatch = new RegExp(
-                    linkRegex.replace("{{typeName}}", typeName)
-                ).exec(line);
-                if (linkMatch) {
-                    toReturn.push({
-                        severity: getSeverity(linkMatch[1]),
-                        excerpt: linkMatch[2].trim(),
-                        location: {
-                            file: shader.fullFilename,
-                            position: firstRowRange
-                        }
-                    });
+            toReturn.push({
+                severity: getSeverity(match[1]),
+                excerpt: match[4].trim(),
+                location: {
+                    file: fullFileName,
+                    position: [
+                        [
+                            lineStart > 0 ? lineStart - 1 : 0,
+                            colStart > 0 ? colStart - 1 : 0
+                        ],
+                        [
+                            lineEnd > 0 ? lineEnd - 1 : 0,
+                            colEnd > 0 ? colEnd - 1 : 0
+                        ]
+                    ]
                 }
             });
-        });
-        resolve(toReturn);
+        }
     });
 
-const extractShaderFilenameTokens = (shaderFilename: string): ShaderTokens => {
-    const fileName = path.basename(shaderFilename);
-    const dirName = path.dirname(shaderFilename);
+    return toReturn;
+};
 
-    let baseFilename;
-    let baseShaderType: ShaderType;
+const getShaderName = (shaderFilename: string): string => {
+    const basename = path.basename(shaderFilename);
 
-    const extChar1GlslMatch = char1glslRegex.exec(fileName);
-    const extChar2GlslMatch = char2glslRegex.exec(fileName);
-    const extChar2Match = char2Regex.exec(fileName);
-    const extChar1ShMatch = char1shRegex.exec(fileName);
-    const extDefaultMatch = defaultRegex.exec(fileName);
+    const m =
+        char1glslRegex.exec(basename) ||
+        char2glslRegex.exec(basename) ||
+        char2Regex.exec(basename) ||
+        char1shRegex.exec(basename) ||
+        defaultRegex.exec(basename);
 
-    if (extChar1GlslMatch) {
-        baseFilename = extChar1GlslMatch[1];
-        baseShaderType = shaderByChar1(extChar1GlslMatch[2]);
-    } else if (extChar2GlslMatch) {
-        baseFilename = extChar2GlslMatch[1];
-        baseShaderType = shaderByChar2(extChar2GlslMatch[2]);
-    } else if (extChar1ShMatch) {
-        baseFilename = extChar1ShMatch[1];
-        baseShaderType = shaderByChar1(extChar1ShMatch[2]);
-    } else if (extChar2Match) {
-        baseFilename = extChar2Match[1];
-        baseShaderType = shaderByChar2(extChar2Match[2]);
-    } else if (extDefaultMatch) {
-        baseFilename = extDefaultMatch[1];
-        baseShaderType = shaderByChar4(extDefaultMatch[2]);
-    } else {
+    if (!m) {
         throw Error("Unknown shader type");
     }
 
-    let outFilename = baseFilename;
-    if (!outFilename.endsWith(".")) outFilename += ".";
+    const name = m[1];
+    const ext = formatExt[m[2]];
 
-    outFilename += baseShaderType.char4;
-
-    return {
-        baseFilename,
-        baseShaderType,
-        dirName,
-        outFilename,
-        fullFilename: shaderFilename
-    };
+    return `${name}.${ext}`;
 };
 
-// Internal states
-interface State {
-    subscriptions?: Atom.CompositeDisposable;
-    glslangValidatorPath?: string;
-    messages?: MessagePanelView;
-}
-const state: State = {};
+const DEFAULT_VALIDATOR_PATH = "glslangValidator";
 
-export default {
-    config: {
+class Linter {
+    public config = {
         glslangValidatorPath: {
             type: "string",
-            default: "glslangValidator",
+            default: DEFAULT_VALIDATOR_PATH,
             order: 1
         }
-    },
+    };
 
-    activate(): void {
+    private glslangValidatorPath: string = DEFAULT_VALIDATOR_PATH;
+    private subscriptions = new Atom.CompositeDisposable();
+    private messagePanel = new MessagePanelView({
+        title: "linter-glslify"
+    });
+
+    public activate(): void {
         require("atom-package-deps").install("linter-glsl");
-        const { PlainMessageView } = require("atom-message-panel"); // eslint-disable-line
 
-        state.subscriptions = new Atom.CompositeDisposable();
-
-        state.subscriptions.add(
+        this.messagePanel.attach();
+        this.subscriptions.add(
             atom.config.observe(
-                "linter-glsl.glslangValidatorPath",
-                (glslangValidatorPath: string): void => {
-                    state.glslangValidatorPath =
-                        module.exports.config.glslangValidatorPath.default;
-                    if (
-                        fs.existsSync(glslangValidatorPath) &&
-                        fs.statSync(glslangValidatorPath).isFile()
-                    ) {
-                        try {
-                            fs.accessSync(
-                                glslangValidatorPath,
-                                fs.constants.X_OK
-                            );
-                            state.glslangValidatorPath = glslangValidatorPath;
-                        } catch (error) {
-                            // eslint-disable-next-line no-console
-                            console.log(error);
-                        }
-                    } else {
-                        try {
-                            state.glslangValidatorPath = which.sync(
-                                glslangValidatorPath
-                            );
-                        } catch (error) {
-                            // eslint-disable-next-line no-console
-                            console.log(error);
-                        }
-                    }
-
-                    if (state.glslangValidatorPath) {
-                        if (state.messages) {
-                            state.messages.close();
-                            state.messages = undefined;
-                        }
-                    } else {
-                        if (!state.messages) {
-                            state.messages = new MessagePanelView({
-                                title: "linter-glslify"
-                            });
-                            state.messages.attach();
-                            state.messages.toggle();
-                        }
-                        state.messages.clear();
-                        state.messages.add(
-                            new PlainMessageView({
-                                message: `Unable to locate glslangValidator at '${glslangValidatorPath}'`,
-                                className: "text-error"
-                            })
-                        );
-                    }
-                }
+                "linter-glslify.glslangValidatorPath",
+                this.onChangeValidatorPath
             )
         );
-    },
+    }
 
-    deactivate(): void {
-        if (state.subscriptions) {
-            state.subscriptions.dispose();
-        }
-    },
+    public deactivate(): void {
+        this.subscriptions.dispose();
+    }
 
-    provideLinter(): LinterBody {
-        const helpers = require("atom-linter"); // eslint-disable-line
-
+    public provideLinter(): LinterBody {
         return {
             name: "glsl",
             grammarScopes: ["source.glsl"],
             scope: "file",
             lintsOnChange: true,
-            lint: (editor: Atom.TextEditor): Promise<null> => {
-                const file = editor.getPath();
+            lint: async (
+                editor: Atom.TextEditor
+            ): Promise<Message[] | null> => {
+                const filepath = editor.getPath();
                 const content = editor.getText();
-                let command = state.glslangValidatorPath;
 
-                if (state.glslangValidatorPath === undefined) {
-                    command =
-                        module.exports.config.glslangValidatorPath.default;
-                }
-
-                if (!file) {
+                if (!filepath) {
                     throw "editor.getPath failed"; // TODO: fix
                 }
-                const shaderFileTokens = extractShaderFilenameTokens(file);
+                const shaderName = getShaderName(filepath);
 
-                let filesToValidate: Shader[] = [
-                    {
-                        name: shaderFileTokens.outFilename,
-                        fullFilename: file,
-                        type: shaderFileTokens.baseShaderType,
-                        contents: content
-                    }
-                ];
-                let args: string[] = [];
+                try {
+                    // Save files to tempfile, then run validator with them
+                    const tmpfile = await tempWrite(content);
+                    const result = await execa(this.glslangValidatorPath, [
+                        tmpfile
+                    ]);
 
-                return helpers
-                    .tempFiles(
-                        filesToValidate,
-                        (files: string[]): Promise<void> =>
-                            helpers.exec(command, args.concat(files), {
-                                stream: "stdout",
-                                ignoreExitCode: true
-                            })
-                    )
-                    .then(
-                        (output: string): Promise<LintResult[]> =>
-                            parseGlslValidatorResponse(
-                                filesToValidate,
-                                output,
-                                helpers.generateRange(editor, 0)
-                            )
-                    )
-                    .catch((error: Error): null => {
-                        // eslint-disable-next-line no-console
-                        console.error(error);
-                        // Since something went wrong executing, return null so
-                        // Linter doesn't update any current results
-                        return null;
-                    });
+                    return parseGlslValidatorResponse(
+                        shaderName,
+                        filepath,
+                        result.stdout
+                    );
+                } catch (e) {
+                    // Since something went wrong executing, return null so
+                    // Linter doesn't update any current results.
+                    console.error(e); // eslint-disable-line no-console
+                }
+
+                return null;
             }
         };
     }
-};
+
+    private onChangeValidatorPath = (_validatorPath: string): void => {
+        let isValid = true;
+        let validatorPath = _validatorPath;
+
+        // Check new path
+        if (
+            fs.existsSync(validatorPath) &&
+            fs.statSync(validatorPath).isFile()
+        ) {
+            try {
+                fs.accessSync(validatorPath, fs.constants.X_OK);
+            } catch (error) {
+                // eslint-disable-next-line no-console
+                console.log(error);
+                isValid = false;
+            }
+        } else {
+            try {
+                validatorPath = which.sync(validatorPath);
+            } catch (error) {
+                console.log(error); // eslint-disable-line no-console
+                isValid = false;
+            }
+        }
+
+        if (isValid) {
+            this.glslangValidatorPath = validatorPath;
+            this.hideMessagePanel();
+        } else {
+            this.showErrorOnMessagePanel(
+                `Unable to locate glslangValidator at '${validatorPath}'`
+            );
+        }
+    };
+
+    private showErrorOnMessagePanel(msg: string): void {
+        this.messagePanel.clear();
+        this.messagePanel.add(
+            new PlainMessageView({
+                message: msg,
+                className: "text-error"
+            })
+        );
+    }
+
+    private hideMessagePanel(): void {
+        this.messagePanel.close();
+    }
+}
+
+export default new Linter();
