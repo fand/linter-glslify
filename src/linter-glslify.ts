@@ -215,35 +215,29 @@ const extractShaderFilenameTokens = (shaderFilename: string): ShaderTokens => {
     };
 };
 
-// Internal states
-interface State {
-    subscriptions?: Atom.CompositeDisposable;
-    glslangValidatorPath?: string;
-    messages?: MessagePanelView;
-}
-const state: State = {};
-
-export default {
-    config: {
+class Linter {
+    public config = {
         glslangValidatorPath: {
             type: "string",
             default: "glslangValidator",
             order: 1
         }
-    },
+    };
+    private subscriptions?: Atom.CompositeDisposable = undefined;
+    private glslangValidatorPath?: string = undefined;
+    private messages?: MessagePanelView = undefined;
 
-    activate(): void {
+    public activate(): void {
         require("atom-package-deps").install("linter-glsl");
         const { PlainMessageView } = require("atom-message-panel"); // eslint-disable-line
 
-        state.subscriptions = new Atom.CompositeDisposable();
+        this.subscriptions = new Atom.CompositeDisposable();
 
-        state.subscriptions.add(
+        this.subscriptions.add(
             atom.config.observe(
                 "linter-glsl.glslangValidatorPath",
                 (glslangValidatorPath: string): void => {
-                    state.glslangValidatorPath =
-                        module.exports.config.glslangValidatorPath.default;
+                    this.glslangValidatorPath = this.config.glslangValidatorPath.default;
                     if (
                         fs.existsSync(glslangValidatorPath) &&
                         fs.statSync(glslangValidatorPath).isFile()
@@ -253,14 +247,14 @@ export default {
                                 glslangValidatorPath,
                                 fs.constants.X_OK
                             );
-                            state.glslangValidatorPath = glslangValidatorPath;
+                            this.glslangValidatorPath = glslangValidatorPath;
                         } catch (error) {
                             // eslint-disable-next-line no-console
                             console.log(error);
                         }
                     } else {
                         try {
-                            state.glslangValidatorPath = which.sync(
+                            this.glslangValidatorPath = which.sync(
                                 glslangValidatorPath
                             );
                         } catch (error) {
@@ -269,21 +263,21 @@ export default {
                         }
                     }
 
-                    if (state.glslangValidatorPath) {
-                        if (state.messages) {
-                            state.messages.close();
-                            state.messages = undefined;
+                    if (this.glslangValidatorPath) {
+                        if (this.messages) {
+                            this.messages.close();
+                            this.messages = undefined;
                         }
                     } else {
-                        if (!state.messages) {
-                            state.messages = new MessagePanelView({
+                        if (!this.messages) {
+                            this.messages = new MessagePanelView({
                                 title: "linter-glslify"
                             });
-                            state.messages.attach();
-                            state.messages.toggle();
+                            this.messages.attach();
+                            this.messages.toggle();
                         }
-                        state.messages.clear();
-                        state.messages.add(
+                        this.messages.clear();
+                        this.messages.add(
                             new PlainMessageView({
                                 message: `Unable to locate glslangValidator at '${glslangValidatorPath}'`,
                                 className: "text-error"
@@ -293,15 +287,15 @@ export default {
                 }
             )
         );
-    },
+    }
 
-    deactivate(): void {
-        if (state.subscriptions) {
-            state.subscriptions.dispose();
+    public deactivate(): void {
+        if (this.subscriptions) {
+            this.subscriptions.dispose();
         }
-    },
+    }
 
-    provideLinter(): LinterBody {
+    public provideLinter(): LinterBody {
         const helpers = require("atom-linter"); // eslint-disable-line
 
         return {
@@ -312,9 +306,9 @@ export default {
             lint: (editor: Atom.TextEditor): Promise<null> => {
                 const file = editor.getPath();
                 const content = editor.getText();
-                let command = state.glslangValidatorPath;
+                let command = this.glslangValidatorPath;
 
-                if (state.glslangValidatorPath === undefined) {
+                if (this.glslangValidatorPath === undefined) {
                     command =
                         module.exports.config.glslangValidatorPath.default;
                 }
@@ -361,4 +355,6 @@ export default {
             }
         };
     }
-};
+}
+
+export default new Linter();
