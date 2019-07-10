@@ -1,4 +1,4 @@
-import { TextEditor } from 'atom';
+import { LinterBody } from "./types";
 declare const _default: {
     config: {
         glslangValidatorPath: {
@@ -6,20 +6,9 @@ declare const _default: {
             default: string;
             order: number;
         };
-        linkSimilarShaders: {
-            type: string;
-            default: boolean;
-            order: number;
-        };
     };
     activate(): void;
     deactivate(): void;
-    provideLinter(): {
-        name: string;
-        grammarScopes: string[];
-        scope: string;
-        lintsOnChange: boolean;
-        lint: (editor: TextEditor) => any;
-    };
+    provideLinter(): LinterBody;
 };
 export default _default;

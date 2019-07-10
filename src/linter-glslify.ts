@@ -33,8 +33,6 @@ interface Shader {
 }
 
 interface ShaderTokens {
-    linkTargets: ShaderType[];
-    linkTargetPattern: string;
     baseFilename: string;
     baseShaderType: ShaderType;
     dirName: string;
@@ -177,10 +175,6 @@ const extractShaderFilenameTokens = (shaderFilename: string): ShaderTokens => {
 
     let baseFilename;
     let baseShaderType: ShaderType;
-    let baseExtension;
-
-    let linkTargetPattern;
-    let linkTargets;
 
     const extChar1GlslMatch = char1glslRegex.exec(fileName);
     const extChar2GlslMatch = char2glslRegex.exec(fileName);
@@ -191,48 +185,18 @@ const extractShaderFilenameTokens = (shaderFilename: string): ShaderTokens => {
     if (extChar1GlslMatch) {
         baseFilename = extChar1GlslMatch[1];
         baseShaderType = shaderByChar1(extChar1GlslMatch[2]);
-        baseExtension = extChar1GlslMatch[3];
-
-        linkTargets = shaderTypes.filter(
-            (shaderType): boolean => shaderType !== baseShaderType
-        );
-        linkTargetPattern = `${baseFilename}{{char1}}${baseExtension}`;
     } else if (extChar2GlslMatch) {
         baseFilename = extChar2GlslMatch[1];
         baseShaderType = shaderByChar2(extChar2GlslMatch[2]);
-        baseExtension = extChar2GlslMatch[3];
-
-        linkTargets = shaderTypes.filter(
-            (shaderType): boolean => shaderType !== baseShaderType
-        );
-        linkTargetPattern = `${baseFilename}{{char2}}${baseExtension}`;
     } else if (extChar1ShMatch) {
         baseFilename = extChar1ShMatch[1];
         baseShaderType = shaderByChar1(extChar1ShMatch[2]);
-        baseExtension = extChar1ShMatch[3];
-
-        linkTargets = shaderTypes.filter(
-            (shaderType): boolean => shaderType !== baseShaderType
-        );
-        linkTargetPattern = `${baseFilename}{{char1}}${baseExtension}`;
     } else if (extChar2Match) {
         baseFilename = extChar2Match[1];
         baseShaderType = shaderByChar2(extChar2Match[2]);
-        baseExtension = extChar2Match[3];
-
-        linkTargets = shaderTypes.filter(
-            (shaderType): boolean => shaderType !== baseShaderType
-        );
-        linkTargetPattern = `${baseFilename}{{char2}}${baseExtension}`;
     } else if (extDefaultMatch) {
         baseFilename = extDefaultMatch[1];
         baseShaderType = shaderByChar4(extDefaultMatch[2]);
-        baseExtension = extDefaultMatch[2];
-
-        linkTargets = shaderTypes.filter(
-            (shaderType): boolean => shaderType !== baseShaderType
-        );
-        linkTargetPattern = `${baseFilename}{{char4}}`;
     } else {
         throw Error("Unknown shader type");
     }
@@ -243,8 +207,6 @@ const extractShaderFilenameTokens = (shaderFilename: string): ShaderTokens => {
     outFilename += baseShaderType.char4;
 
     return {
-        linkTargets,
-        linkTargetPattern,
         baseFilename,
         baseShaderType,
         dirName,
@@ -256,13 +218,10 @@ const extractShaderFilenameTokens = (shaderFilename: string): ShaderTokens => {
 // Internal states
 interface State {
     subscriptions?: Atom.CompositeDisposable;
-    linkSimilarShaders: boolean;
     glslangValidatorPath?: string;
     messages?: MessagePanelView;
 }
-const state: State = {
-    linkSimilarShaders: false
-};
+const state: State = {};
 
 export default {
     config: {
@@ -270,11 +229,6 @@ export default {
             type: "string",
             default: "glslangValidator",
             order: 1
-        },
-        linkSimilarShaders: {
-            type: "boolean",
-            default: false,
-            order: 2
         }
     },
 
@@ -285,12 +239,6 @@ export default {
         state.subscriptions = new Atom.CompositeDisposable();
 
         state.subscriptions.add(
-            atom.config.observe(
-                "linter-glsl.linkSimilarShaders",
-                (linkSimilarShaders: boolean): void => {
-                    state.linkSimilarShaders = linkSimilarShaders;
-                }
-            ),
             atom.config.observe(
                 "linter-glsl.glslangValidatorPath",
                 (glslangValidatorPath: string): void => {
@@ -386,37 +334,6 @@ export default {
                 ];
                 let args: string[] = [];
 
-                if (state.linkSimilarShaders) {
-                    filesToValidate = filesToValidate.concat(
-                        shaderFileTokens.linkTargets
-                            .map((target: ShaderType): string =>
-                                shaderFileTokens.linkTargetPattern
-                                    .replace("{{char1}}", target.char1 || "")
-                                    .replace("{{char2}}", target.char2)
-                                    .replace("{{char4}}", target.char4)
-                            )
-                            .map((shader: string): string =>
-                                path.join(shaderFileTokens.dirName, shader)
-                            )
-                            .filter(fs.existsSync)
-                            .map(extractShaderFilenameTokens)
-                            .map(
-                                (shader: ShaderTokens): Shader => ({
-                                    name: shader.outFilename,
-                                    fullFilename: shader.fullFilename,
-                                    type: shader.baseShaderType,
-                                    contents: fs.readFileSync(
-                                        shader.fullFilename,
-                                        "UTF-8"
-                                    )
-                                })
-                            )
-                    );
-
-                    if (filesToValidate.length > 1) {
-                        args = ["-l"];
-                    }
-                }
                 return helpers
                     .tempFiles(
                         filesToValidate,
