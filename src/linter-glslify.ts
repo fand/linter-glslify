@@ -4,10 +4,15 @@ import * as path from "path";
 import which from "which";
 import tempWrite from "temp-write";
 import execa from "execa";
+import glslify = require("glslify-lite");
+import * as convert from "convert-source-map";
+import * as sourceMap from "source-map";
+const rw = require("source-map/lib/read-wasm-browser");
+console.log(rw);
 
 import * as Atom from "atom";
 import { MessagePanelView } from "atom-message-panel";
-import { LinterBody, Message, RangeOrArray, Severity } from "./types";
+import { LinterBody, Message, Severity } from "./types";
 const { PlainMessageView } = require("atom-message-panel"); // eslint-disable-line
 
 const char1glslRegex = /^(.*)(?:\.|_)(v|g|f)(\.glsl)$/;
@@ -22,7 +27,7 @@ interface LintResult {
     excerpt: string;
     location: {
         file?: string;
-        position: RangeOrArray;
+        position: [[number, number], [number, number]];
     };
 }
 
@@ -132,7 +137,7 @@ class Linter {
     });
 
     public activate(): void {
-        require("atom-package-deps").install("linter-glsl");
+        require("atom-package-deps").install("linter-glslify");
 
         this.messagePanel.attach();
         this.subscriptions.add(
@@ -149,7 +154,7 @@ class Linter {
 
     public provideLinter(): LinterBody {
         return {
-            name: "glsl",
+            name: "glslify",
             grammarScopes: ["source.glsl"],
             scope: "file",
             lintsOnChange: true,
@@ -159,23 +164,78 @@ class Linter {
                 const filepath = editor.getPath();
                 const content = editor.getText();
 
+                console.log(
+                    "log????",
+                    (sourceMap.SourceMapConsumer as any).initialize,
+                    sourceMap.SourceMapConsumer
+                );
+                await (sourceMap.SourceMapConsumer as any).initialize({
+                    "lib/mappings.wasm":
+                        "https://unpkg.com/source-map@0.7.3/lib/mappings.wasm"
+                });
+
                 if (!filepath) {
                     throw "editor.getPath failed"; // TODO: fix
                 }
                 const shaderName = getShaderName(filepath);
 
+                const basedir = path.dirname(filepath);
+
                 try {
+                    const compiledContent = await glslify.compile(content, {
+                        basedir
+                    });
+
                     // Save files to tempfile, then run validator with them
-                    const tmpfile = await tempWrite(content);
+                    const tmpfile = await tempWrite(compiledContent);
                     const result = await execa(this.glslangValidatorPath, [
                         tmpfile
                     ]);
 
-                    return parseGlslValidatorResponse(
+                    const messages = parseGlslValidatorResponse(
                         shaderName,
                         filepath,
                         result.stdout
                     );
+
+                    // Fix error positions with sourcemaps
+                    const sm = convert.fromSource(compiledContent);
+                    if (sm) {
+                        const consumer = await new sourceMap.SourceMapConsumer(
+                            sm.toObject()
+                        );
+
+                        for (const m of messages) {
+                            let [from, to] = m.location.position;
+
+                            const originalFrom = consumer.originalPositionFor({
+                                line: from[0],
+                                column: from[1]
+                            });
+                            const originalTo = consumer.originalPositionFor({
+                                line: to[0],
+                                column: to[1]
+                            });
+
+                            if (
+                                originalFrom.line &&
+                                originalFrom.column &&
+                                originalTo.line &&
+                                originalTo.column
+                            ) {
+                                m.location.position = [
+                                    [
+                                        originalFrom.line || from[0],
+                                        originalFrom.column || from[1]
+                                    ],
+                                    [
+                                        originalTo.line || to[0],
+                                        originalTo.column || to[1]
+                                    ]
+                                ];
+                            }
+                        }
+                    }
                 } catch (e) {
                     // Since something went wrong executing, return null so
                     // Linter doesn't update any current results.
@@ -237,4 +297,4 @@ class Linter {
     }
 }
 
-export default new Linter();
+module.exports = new Linter();
