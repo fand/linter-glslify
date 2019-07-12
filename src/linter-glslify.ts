@@ -197,10 +197,10 @@ class Linter {
             )
         );
 
-        const rw = require("source-map/lib/read-wasm-browser");
-        rw.initialize({
-            "lib/mappings.wasm":
-                "https://unpkg.com/source-map@0.7.3/lib/mappings.wasm"
+        // SourceMapConsumer must be initialized before using it
+        // because Atom is regarded as a browser environment.
+        (sourceMap.SourceMapConsumer as any).initialize({
+            "lib/mappings.wasm": path.resolve(__dirname, "../mappings.wasm")
         });
     }
 
