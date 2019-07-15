@@ -1,21 +1,16 @@
-import { LinterBody } from "./types";
-declare class Linter {
-    config: {
-        glslangValidatorPath: {
-            type: string;
-            default: string;
-            order: number;
-        };
-    };
-    private glslangValidatorPath;
-    private subscriptions;
-    private messagePanel;
-    activate(): void;
-    deactivate(): void;
-    provideLinter(): LinterBody;
-    private onChangeValidatorPath;
-    private showErrorOnMessagePanel;
-    private hideMessagePanel;
+import * as sourceMap from "source-map";
+interface MapPos {
+    line: number;
+    column: number;
+    name: string | null;
+    source: string | null;
 }
-declare const _default: Linter;
-export default _default;
+export declare const getOriginalPos: (
+    src: string,
+    pos: {
+        line: number;
+        column: number;
+    },
+    consumer: sourceMap.SourceMapConsumer
+) => MapPos | undefined;
+export {};
