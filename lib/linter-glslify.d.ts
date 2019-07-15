@@ -1,16 +1,11 @@
 import * as sourceMap from "source-map";
-interface MapPos {
+interface Pos {
     line: number;
     column: number;
-    name: string | null;
-    source: string | null;
 }
 export declare const getOriginalPos: (
     src: string,
-    pos: {
-        line: number;
-        column: number;
-    },
+    _pos: Pos,
     consumer: sourceMap.SourceMapConsumer
-) => MapPos | undefined;
+) => Pos | undefined;
 export {};

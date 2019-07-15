@@ -117,56 +117,74 @@ const getShaderName = (shaderFilename: string): string => {
     return `${name}.${ext}`;
 };
 
-interface MapPos {
+interface Pos {
     line: number;
     column: number;
+}
+interface MapPos extends Pos {
     name: string | null;
     source: string | null;
 }
 
+const shiftPos = (p: Pos, shift: number): Pos => ({
+    ...p,
+    line: p.line + shift,
+    column: p.column + shift
+});
+
 // Util: get original position
 export const getOriginalPos = (
     src: string,
-    pos: { line: number; column: number },
+    _pos: Pos, // Position in 0-origin
     consumer: sourceMap.SourceMapConsumer
-): MapPos | undefined => {
+): Pos | undefined => {
+    // Position in 1-origin
+    const pos = shiftPos(_pos, 1);
+
     // Try exact line
     const op = consumer.originalPositionFor(pos);
     if (op.line !== null) {
-        return op as MapPos;
+        return shiftPos(op as MapPos, -1);
     }
 
     const lines = src.split("\n");
     const line = lines[pos.line - 1]; // pos.line is 1-origin
 
     // Find nearest mappings
-    let pBefore: MapPos | undefined = undefined;
-    let pAfter: MapPos | undefined = undefined;
+    let pBefore: MapPos | undefined;
+    let pAfter: MapPos | undefined;
     for (let i = pos.column - 1; i > 0; i--) {
-        const op = consumer.originalPositionFor({ line: pos.line, column: i });
-        if (op.line !== null) {
-            pBefore = op as MapPos;
+        const p = consumer.originalPositionFor({
+            line: pos.line,
+            column: i
+        });
+        if (p.line !== null) {
+            pBefore = p as MapPos;
             break;
         }
     }
     for (let i = pos.column + 1; i <= line.length + 1; i++) {
-        const op = consumer.originalPositionFor({ line: pos.line, column: i });
-        if (op.line !== null) {
-            pAfter = op as MapPos;
+        const p = consumer.originalPositionFor({
+            line: pos.line,
+            column: i
+        });
+        if (p.line !== null) {
+            pAfter = p as MapPos;
             break;
         }
     }
 
+    let result: Pos | undefined;
     if (pBefore && pAfter) {
-        return pos.column - pBefore.column < pAfter.column - pos.column
-            ? pBefore
-            : pAfter;
-    }
-    if (pBefore || pAfter) {
-        return pBefore || pAfter;
+        result =
+            pos.column - pBefore.column < pAfter.column - pos.column
+                ? pBefore
+                : pAfter;
+    } else if (pBefore || pAfter) {
+        result = pBefore || pAfter;
     }
 
-    return undefined;
+    return result ? shiftPos(result, -1) : undefined;
 };
 
 const DEFAULT_VALIDATOR_PATH = "glslangValidator";
@@ -266,18 +284,14 @@ class Linter {
                             );
                             const originalTo = getOriginalPos(
                                 compiledContent,
-                                // { line: to[0], column: to[1] },
                                 { line: to[0], column: 9999 },
                                 consumer
                             );
 
                             if (originalFrom && originalTo) {
                                 m.location.position = [
-                                    [
-                                        originalFrom.line,
-                                        originalFrom.column - 1
-                                    ],
-                                    [originalTo.line, originalTo.column - 1]
+                                    [originalFrom.line, originalFrom.column],
+                                    [originalTo.line, originalTo.column]
                                 ];
                             }
                         }
