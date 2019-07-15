@@ -2,3 +2,4 @@
 * text eol=lf
 
 *.png binary
+lib/* binary
