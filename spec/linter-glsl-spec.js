@@ -163,6 +163,10 @@ describe("linter-glslify", () => {
         await fsTest("sample.fsh");
     });
 
+    it('finds two errors in "sample.glsl"', async () => {
+        await fsTest("sample.glsl");
+    });
+
     // Geometry shaders
 
     it('finds two errors in "sample.geom"', async () => {

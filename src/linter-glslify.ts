@@ -17,7 +17,7 @@ const char1glslRegex = /^(.*)(?:\.|_)(v|g|f)(\.glsl)$/;
 const char2glslRegex = /^(.*)(?:\.|_)(vs|tc|te|gs|fs|cs)(\.glsl)$/;
 const char1shRegex = /^(.*)\.(v|g|f)sh$/;
 const char2Regex = /^(.*)\.(vs|tc|te|gs|fs|cs)$/;
-const defaultRegex = /^(.*)\.(vert|frag|geom|tesc|tese|comp)$/;
+const defaultRegex = /^(.*)\.(vert|frag|geom|tesc|tese|comp|glsl)$/;
 const compileRegex = /^([\w -]+): (\d+):(\d+): (.*)$/;
 
 interface LintResult {
@@ -44,7 +44,8 @@ const formatExt: { [ext: string]: string } = {
     tc: "tesc",
     tesc: "tesc",
     cs: "comp",
-    comp: "comp"
+    comp: "comp",
+    glsl: "frag"
 };
 
 const isValidSeverity = (x: string): x is Severity => {
