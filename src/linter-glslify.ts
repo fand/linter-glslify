@@ -7,6 +7,7 @@ import execa from "execa";
 import * as glslify from "glslify-lite";
 import * as convert from "convert-source-map";
 import * as sourceMap from "source-map";
+import prebuiltValidator from "glslang-validator-prebuilt";
 
 import * as Atom from "atom";
 import { MessagePanelView } from "atom-message-panel";
@@ -188,18 +189,16 @@ export const getOriginalPos = (
     return result ? shiftPos(result, -1) : undefined;
 };
 
-const DEFAULT_VALIDATOR_PATH = "glslangValidator";
-
 class Linter {
     public config = {
         glslangValidatorPath: {
             type: "string",
-            default: DEFAULT_VALIDATOR_PATH,
+            default: "",
             order: 1
         }
     };
 
-    private glslangValidatorPath: string = DEFAULT_VALIDATOR_PATH;
+    private glslangValidatorPath: string = prebuiltValidator.path;
     private subscriptions = new Atom.CompositeDisposable();
     private messagePanel = new MessagePanelView({
         title: "linter-glslify"
@@ -314,7 +313,9 @@ class Linter {
         let validatorPath = _validatorPath;
 
         // Check new path
-        if (
+        if (!validatorPath) {
+            isValid = false;
+        } else if (
             fs.existsSync(validatorPath) &&
             fs.statSync(validatorPath).isFile()
         ) {
