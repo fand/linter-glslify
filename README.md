@@ -2,6 +2,8 @@
 
 TBD
 
+[![TravisCI build status](https://travis-ci.org/fand/linter-glslify.svg?branch=master)](http://travis-ci.org/fand/linter-glslify) [![AppVeyor build status](https://ci.appveyor.com/api/projects/status/lg3s6wu09b7bd5aq/branch/master?svg=true)](https://ci.appveyor.com/project/fand/linter-glslify)
+
 ## Requirements
 
 -   [glslangValidator](https://www.khronos.org/opengles/sdk/tools/Reference-Compiler/)
