@@ -2,11 +2,13 @@
 
 TBD
 
+[![TravisCI build status](https://travis-ci.org/fand/linter-glslify.svg?branch=master)](http://travis-ci.org/fand/linter-glslify) [![AppVeyor build status](https://ci.appveyor.com/api/projects/status/lg3s6wu09b7bd5aq/branch/master?svg=true)](https://ci.appveyor.com/project/fand/linter-glslify)
+
 ## Requirements
 
- * [glslangValidator](https://www.khronos.org/opengles/sdk/tools/Reference-Compiler/)
- * [language-glsl](https://atom.io/packages/language-glsl/)
- * [linter](https://atom.io/packages/linter/)
+-   [glslangValidator](https://www.khronos.org/opengles/sdk/tools/Reference-Compiler/)
+-   [language-glsl](https://atom.io/packages/language-glsl/)
+-   [linter](https://atom.io/packages/linter/)
 
 ## Installation
 
@@ -15,9 +17,10 @@ TBD
 1. Install [glslangValidator](https://www.khronos.org/opengles/sdk/tools/Reference-Compiler/)
 2. Install [linter](https://atom.io/packages/linter/), [language-glsl](https://atom.io/packages/language-glsl/) and [linter-glslify](https://atom.io/packages/linter-glslify/), either through 'Install Packages And Themes' or with apm:
 
-   ```sh
-   $ apm install linter language-glsl linter-glsl
-   ```
+    ```sh
+    $ apm install linter language-glsl linter-glsl
+    ```
+
 3. Configure the path to glslangValidator in preferences.
 4. Lint!
 
@@ -32,6 +35,7 @@ TBD
 | `.v.glsl`  | `.f.glsl`  | `.g.glsl`  |                      |                         |            |
 | `_v.glsl`  | `_f.glsl`  | `_g.glsl`  |                      |                         |            |
 | `.vsh`     | `.fsh`     | `.gsh`     |                      |                         |            |
+|            | '.glsl'    |            |                      |                         |            |
 
 ## Developing
 
@@ -39,7 +43,7 @@ The glslangValidator tool is in development, and the released Windows and Linux 
 
 ## Acknowledgements
 
- * [linter-glsl](https://github.com/AtomLinter/linter-glsl/) was used as a reference for interacting with the atom-linter package, styling, and how to write specs for Atom.
+-   [linter-glsl](https://github.com/AtomLinter/linter-glsl/) was used as a reference for interacting with the atom-linter package, styling, and how to write specs for Atom.
 
 ## license
 
