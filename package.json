@@ -36,6 +36,7 @@
         "atom-package-deps": "5.1.0",
         "convert-source-map": "^1.6.0",
         "execa": "^1.0.0",
+        "glslang-validator-prebuilt": "0.0.1",
         "glslify-lite": "0.0.7",
         "source-map": "^0.8.0-beta.0",
         "temp-write": "^4.0.0",
