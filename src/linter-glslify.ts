@@ -192,6 +192,7 @@ export const getOriginalPos = (
 class Linter {
     public config = {
         glslangValidatorPath: {
+            title: "Custom glslangValidator path (optional)",
             type: "string",
             default: "",
             order: 1
@@ -312,10 +313,13 @@ class Linter {
         let isValid = true;
         let validatorPath = _validatorPath;
 
-        // Check new path
+        // Do nothing if the path is empty
         if (!validatorPath) {
-            isValid = false;
-        } else if (
+            return;
+        }
+
+        // Check new path
+        if (
             fs.existsSync(validatorPath) &&
             fs.statSync(validatorPath).isFile()
         ) {
