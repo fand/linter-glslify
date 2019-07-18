@@ -1,4 +1,3 @@
-### Project specific config ###
 language: generic
 
 env:
@@ -14,11 +13,11 @@ os:
     - linux
     - osx
 
-### Generic setup follows ###
+install:
+    - if [ $TRAVIS_OS_NAME = linux ]; then sudo apt-get install libgconf2-4; fi
+
 script:
-    - curl -s -O https://raw.githubusercontent.com/atom/ci/master/build-package.sh
-    - chmod u+x build-package.sh
-    - ./build-package.sh
+    - ./scripts/travis.sh
 
 notifications:
     email:
