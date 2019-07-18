@@ -1,7 +1,7 @@
 {
     "name": "linter-glslify",
     "description": "Linter for GLSL shaders, powered with glslify",
-    "version": "0.0.0",
+    "version": "1.0.0",
     "author": "fand <fand.gmork@gmail.com> (https://gmork.in/)",
     "bugs": "https://github.com/fand/linter-glslify/issues",
     "dependencies": {
